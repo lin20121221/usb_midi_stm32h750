@@ -95,8 +95,9 @@ uint8_t UserRxBufferFS[APP_RX_DATA_SIZE]={0};
 uint8_t UserTxBufferFS[APP_TX_DATA_SIZE]={0};
 
 /* USER CODE BEGIN PRIVATE_VARIABLES */
-uint16_t UserRxBufferFS_wp = 0,  UserRxBufferFS_rp = 0;
-uint16_t UserTxBufferFS_wp = 0,  UserTxBufferFS_rp = 0;
+__IO uint16_t UserRxBufferFS_wp = 0,  UserRxBufferFS_rp = 0;
+__IO uint16_t UserTxBufferFS_wp = 0,  UserTxBufferFS_rp = 0;
+__IO uint8_t UserTx_busy = 0;
 /* USER CODE END PRIVATE_VARIABLES */
 
 /**
@@ -229,6 +230,7 @@ uint8_t USBMIDI_Transmit_FS(uint8_t* Buf, uint16_t Len)
   if (hcdc->TxState != 0){
     return USBD_BUSY;
   }
+  UserTx_busy = 1;
   USBD_MIDI_SetTxBuffer(&hUsbDeviceFS, Buf, Len);
   result = USBD_MIDI_TransmitPacket(&hUsbDeviceFS);
   /* USER CODE END 7 */
@@ -255,6 +257,7 @@ static int8_t USBMIDI_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum
   //UNUSED(Len);
   UNUSED(epnum);
   UserTxBufferFS_rp += *Len;
+  UserTx_busy = 0;
   /* USER CODE END 13 */
   return result;
 }
@@ -279,7 +282,8 @@ void USBMIDI_send(uint32_t event){
   len = tx_data_len();
   if(len > MIDI_DATA_FS_IN_PACKET_SIZE)
     len = MIDI_DATA_FS_IN_PACKET_SIZE;
-  USBMIDI_Transmit_FS(&UserTxBufferFS[UserTxBufferFS_rp&APP_TX_MASK], len);
+  if(!UserTx_busy)
+    USBMIDI_Transmit_FS(&UserTxBufferFS[UserTxBufferFS_rp&APP_TX_MASK], len);
 }
 
 uint16_t rx_data_len(){
@@ -296,6 +300,12 @@ __weak int USB_MIDI_decoder(uint8_t *Buf, uint32_t Len){
 
 void USBMIDI_polling(){
   uint16_t len;
+  if(!UserTx_busy && UserTxBufferFS_wp != UserTxBufferFS_rp){
+    len = tx_data_len();
+    if(len > MIDI_DATA_FS_IN_PACKET_SIZE)
+      len = MIDI_DATA_FS_IN_PACKET_SIZE;
+    USBMIDI_Transmit_FS(&UserTxBufferFS[UserTxBufferFS_rp&APP_TX_MASK], len);
+  }
   if(UserRxBufferFS_wp != UserRxBufferFS_rp){
     len = rx_data_len();
     USBD_MIDI_SetRxBuffer(&hUsbDeviceFS, &UserRxBufferFS[UserRxBufferFS_wp&APP_RX_MASK]);
